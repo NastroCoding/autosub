@@ -1,0 +1,10 @@
+Need Choco ffmpeg
+
+pip install pytube3
+pip install moviepy
+pip install gTTS
+pip install pydub
+pip install SpeechRecognition
+pip install pyttsx3
+pip install pyaudio
+pip install pytube3
