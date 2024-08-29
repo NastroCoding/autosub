@@ -1,13 +1,13 @@
 import tkinter as tk
-from tkinter import filedialog, scrolledtext
+from tkinter import filedialog, scrolledtext, ttk
 import moviepy.editor as mp
-from gtts import gTTS
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import os
 import re
-from pydub import AudioSegment
-from pydub.silence import split_on_silence
+import pyttsx3
+import wave
+import contextlib
 
 # Add FFmpeg path to environment variables
 os.environ["PATH"] += os.pathsep + r"C:\ProgramData\chocolatey\lib\ffmpeg\tools\ffmpeg\bin"
@@ -41,24 +41,34 @@ def create_text_clip(text, size, font_size=48, font_color="white", bg_color=None
 def split_text_to_words(text):
     return re.findall(r'\S+', text)
 
+def get_audio_duration(audio_path):
+    with contextlib.closing(wave.open(audio_path, 'r')) as f:
+        frames = f.getnframes()
+        rate = f.getframerate()
+        duration = frames / float(rate)
+    return duration
+
 def get_word_timings(audio_path, words):
-    audio = AudioSegment.from_mp3(audio_path)
-    chunks = split_on_silence(audio, min_silence_len=50, silence_thresh=-40)
-    
-    if len(chunks) != len(words):
-        # If mismatch, use average duration
-        total_duration = len(audio) / 1000  # total duration in seconds
-        avg_duration = total_duration / len(words)
-        return [(word, i * avg_duration, (i + 1) * avg_duration) for i, word in enumerate(words)]
+    total_duration = get_audio_duration(audio_path)
+    avg_duration = total_duration / len(words)
     
     word_timings = []
     current_time = 0
-    for word, chunk in zip(words, chunks):
-        duration = len(chunk) / 1000  # duration in seconds
-        word_timings.append((word, current_time, current_time + duration))
-        current_time += duration
+    for word in words:
+        word_timings.append((word, current_time, current_time + avg_duration))
+        current_time += avg_duration
     
     return word_timings
+
+def get_available_voices():
+    engine = pyttsx3.init()
+    return engine.getProperty('voices')
+
+def generate_speech(text, voice_id, output_path):
+    engine = pyttsx3.init()
+    engine.setProperty('voice', voice_id)
+    engine.save_to_file(text, output_path)
+    engine.runAndWait()
 
 def process_video():
     video_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4")])
@@ -75,12 +85,12 @@ def process_video():
         result_label.config(text="No valid words found in the input text.")
         return
 
-    # Generate AI dubbing
-    tts = gTTS(text=text, lang='en')
-    tts.save("temp_audio.mp3")
+    # Generate AI dubbing with selected voice
+    voice_id = voice_combobox.get()
+    generate_speech(text, voice_id, "temp_audio.wav")
 
     # Get timings for each word
-    word_timings = get_word_timings("temp_audio.mp3", words)
+    word_timings = get_word_timings("temp_audio.wav", words)
 
     # Load video
     video = mp.VideoFileClip(video_path)
@@ -96,7 +106,7 @@ def process_video():
     subtitle = subtitle.set_position('center')  # Center of the screen
 
     # Load AI dubbing audio
-    dubbing_audio = mp.AudioFileClip("temp_audio.mp3")
+    dubbing_audio = mp.AudioFileClip("temp_audio.wav")
 
     # Combine video, subtitles, and dubbing
     final_audio = mp.CompositeAudioClip([video.audio, dubbing_audio])
@@ -108,7 +118,7 @@ def process_video():
     final_video.write_videofile(output_path)
 
     # Clean up temporary files
-    os.remove("temp_audio.mp3")
+    os.remove("temp_audio.wav")
 
     result_label.config(text=f"Video processed successfully!\nSaved as: {output_path}")
 
@@ -121,6 +131,14 @@ text_input_label.pack(pady=5)
 
 text_input = scrolledtext.ScrolledText(root, width=50, height=10)
 text_input.pack(pady=5)
+
+voice_label = tk.Label(root, text="Select voice:")
+voice_label.pack(pady=5)
+
+voices = get_available_voices()
+voice_combobox = ttk.Combobox(root, values=[voice.name for voice in voices])
+voice_combobox.set(voices[0].name)  # Set default voice
+voice_combobox.pack(pady=5)
 
 process_button = tk.Button(root, text="Process Video", command=process_video)
 process_button.pack(pady=10)
